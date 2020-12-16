@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"golang.org/x/net/http2"
@@ -100,4 +101,51 @@ func TestContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	resp.Body.Close()
+}
+
+func TestShutdownIdle(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "Hello world")
+	})
+
+	h2s := &http2.Server{}
+	// Wrap the 'NewHandler' so that we can track when it cleans up.
+	var workers sync.WaitGroup
+	h1s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workers.Add(1)
+		defer workers.Done()
+		NewHandler(handler, h2s).ServeHTTP(w, r)
+	}))
+
+	h1s.Start()
+	defer h1s.Close()
+
+	// Make an h2c request in order to initiate the ServeConn.
+	client := &http.Client{
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLS: func(network, addr string, _ *tls.Config) (net.Conn, error) {
+				return net.Dial(network, addr)
+			},
+		},
+	}
+	resp, err := client.Get(h1s.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	// Now shut down the server
+	if err := h1s.Config.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// At this point, the workers should have been all cleaned up,
+	// so workers.Wait() should return.  This will hang ServeConn
+	// isn't getting shut down correctly.
+	workers.Wait()
 }

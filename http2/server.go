@@ -319,6 +319,11 @@ type ServeConnOpts struct {
 	// requests. If nil, BaseConfig.Handler is used. If BaseConfig
 	// or BaseConfig.Handler is nil, http.DefaultServeMux is used.
 	Handler http.Handler
+
+	// RegisterOnShudown is called for each new *serverConn. The
+	// callback func will initiate a graceful shutdown of that
+	// *serverConn. If nil, it is not called.
+	RegisterOnShutdown func(callback func())
 }
 
 func (o *ServeConnOpts) context() context.Context {
@@ -391,6 +396,10 @@ func (s *Server) ServeConn(c net.Conn, opts *ServeConnOpts) {
 
 	s.state.registerConn(sc)
 	defer s.state.unregisterConn(sc)
+
+	if ros := opts.RegisterOnShutdown; ros != nil {
+		ros(sc.startGracefulShutdown)
+	}
 
 	// The net/http package sets the write deadline from the
 	// http.Server.WriteTimeout during the TLS handshake, but then

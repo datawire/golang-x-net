@@ -84,9 +84,15 @@ func (s h2cHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		defer conn.Close()
 
+		h1s, ok := r.Context().Value(http.ServerContextKey).(*http.Server)
+		if !ok {
+			panic("Request Context does not have an associated *http.Server")
+		}
+
 		s.s.ServeConn(conn, &http2.ServeConnOpts{
-			Context: r.Context(),
-			Handler: s.Handler,
+			Context:            r.Context(),
+			Handler:            s.Handler,
+			RegisterOnShutdown: h1s.RegisterOnShutdown,
 		})
 		return
 	}
@@ -94,9 +100,15 @@ func (s h2cHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if conn, err := h2cUpgrade(w, r); err == nil {
 		defer conn.Close()
 
+		h1s, ok := r.Context().Value(http.ServerContextKey).(*http.Server)
+		if !ok {
+			panic("Request Context does not have an associated *http.Server")
+		}
+
 		s.s.ServeConn(conn, &http2.ServeConnOpts{
-			Context: r.Context(),
-			Handler: s.Handler,
+			Context:            r.Context(),
+			Handler:            s.Handler,
+			RegisterOnShutdown: h1s.RegisterOnShutdown,
 		})
 		return
 	}
